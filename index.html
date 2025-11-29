@@ -2,26 +2,63 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Real-Time Object Detector</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Object Detector Pro</title>
 <style>
+  * { box-sizing: border-box; }
   body { 
-    background:#111; 
+    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
     color:#eee; 
-    font-family:Arial; 
+    font-family: 'Segoe UI', Arial, sans-serif; 
     text-align:center; 
     margin:0;
     padding:20px;
+    min-height: 100vh;
   }
+  h2 {
+    background: linear-gradient(90deg, #00f5ff, #0af, #00ff88);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-size: 32px;
+    margin-bottom: 10px;
+  }
+  #controls {
+    margin: 20px auto;
+    max-width: 640px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    padding: 12px 24px;
+    font-size: 16px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 25px;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  }
+  button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+  }
+  button:active { transform: translateY(0); }
   #videoContainer {
     position: relative;
     display: inline-block;
     margin-top: 20px;
+    box-shadow: 0 8px 32px rgba(0, 245, 255, 0.3);
+    border-radius: 15px;
+    overflow: hidden;
   }
   video { 
     width:100%; 
     max-width:640px; 
-    border:3px solid #0ff; 
-    border-radius:10px;
+    border:3px solid #00f5ff; 
+    border-radius:12px;
     display: block;
   }
   canvas {
@@ -31,52 +68,156 @@
     width: 100%;
     height: 100%;
     pointer-events: none;
+    border-radius: 12px;
   }
   #status { 
     margin-top:20px; 
-    font-size:20px; 
-    color: #0ff;
+    font-size:18px; 
+    color: #00f5ff;
+    text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
+  }
+  #stats {
+    margin: 15px auto;
+    max-width: 640px;
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .stat-box {
+    background: rgba(255,255,255,0.05);
+    padding: 15px 25px;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 245, 255, 0.3);
+    backdrop-filter: blur(10px);
+  }
+  .stat-number {
+    font-size: 28px;
+    font-weight: bold;
+    color: #00ff88;
+  }
+  .stat-label {
+    font-size: 12px;
+    color: #aaa;
+    text-transform: uppercase;
   }
   #detections {
     margin-top: 20px;
     padding: 20px;
-    background: #222;
-    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 15px;
     max-width: 640px;
     margin-left: auto;
     margin-right: auto;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(0, 245, 255, 0.2);
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  #detections::-webkit-scrollbar {
+    width: 8px;
+  }
+  #detections::-webkit-scrollbar-track {
+    background: rgba(255,255,255,0.05);
+    border-radius: 10px;
+  }
+  #detections::-webkit-scrollbar-thumb {
+    background: #00f5ff;
+    border-radius: 10px;
   }
   .detection-item {
-    padding: 10px;
-    margin: 5px 0;
-    background: #333;
-    border-radius: 5px;
-    font-size: 18px;
+    padding: 12px;
+    margin: 8px 0;
+    background: rgba(255,255,255,0.08);
+    border-radius: 8px;
+    font-size: 16px;
+    transition: all 0.2s;
+    border-left: 4px solid #00f5ff;
+  }
+  .detection-item:hover {
+    background: rgba(255,255,255,0.12);
+    transform: translateX(5px);
   }
   .object-name {
-    color: #0ff;
+    color: #00f5ff;
     font-weight: bold;
+    text-transform: capitalize;
   }
   .confidence {
-    color: #0f0;
+    color: #00ff88;
     font-size: 14px;
+    float: right;
+  }
+  #screenshot {
+    display: none;
+  }
+  .fps {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(0,0,0,0.7);
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 14px;
+    color: #0f0;
+  }
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    background: #00ff88;
+    color: #000;
+    padding: 15px 25px;
+    border-radius: 10px;
+    font-weight: bold;
+    animation: slideIn 0.3s ease;
+    z-index: 1000;
+  }
+  @keyframes slideIn {
+    from { transform: translateX(400px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
   }
 </style>
 </head>
 <body>
-<h2>🎯 Real-Time Object Detector</h2>
+<h2>🤖 AI Object Detector Pro</h2>
 
-<div id="status">Loading AI model...</div>
+<div id="status">Loading AI models...</div>
+
+<div id="stats">
+  <div class="stat-box">
+    <div class="stat-number" id="objectCount">0</div>
+    <div class="stat-label">Objects</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-number" id="fpsCounter">0</div>
+    <div class="stat-label">FPS</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-number" id="totalDetected">0</div>
+    <div class="stat-label">Total Detected</div>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="cameraBtn">📷 Switch Camera</button>
+  <button id="screenshotBtn">📸 Screenshot</button>
+  <button id="toggleBoxBtn">🔲 Toggle Boxes</button>
+  <button id="clearBtn">🗑️ Clear Stats</button>
+</div>
 
 <div id="videoContainer">
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas"></canvas>
+  <div class="fps" id="fps">0 FPS</div>
 </div>
 
 <div id="detections"></div>
 
+<canvas id="screenshot" width="640" height="480"></canvas>
+
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
+<parameter name="coco-ssd@2.2.3"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0"></script>
 
 <script>
@@ -84,79 +225,148 @@
     const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
+    const screenshotCanvas = document.getElementById("screenshot");
+    const screenshotCtx = screenshotCanvas.getContext("2d");
     const status = document.getElementById("status");
     const detectionsDiv = document.getElementById("detections");
+    const objectCountEl = document.getElementById("objectCount");
+    const fpsCounterEl = document.getElementById("fpsCounter");
+    const totalDetectedEl = document.getElementById("totalDetected");
+    const fpsEl = document.getElementById("fps");
     
     let cocoModel = null;
     let mobileNetModel = null;
+    let currentStream = null;
+    let facingMode = "environment"; // back camera
+    let showBoxes = true;
+    let totalDetections = 0;
+    let uniqueObjects = new Set();
+    
+    // FPS calculation
+    let lastTime = performance.now();
+    let frameCount = 0;
+    let fps = 0;
 
-    // Start webcam with back camera
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { 
-                facingMode: { ideal: "environment" },
-                width: { ideal: 640 },
-                height: { ideal: 480 }
-            } 
-        });
-        video.srcObject = stream;
-        
-        video.addEventListener('loadeddata', () => {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-        });
-        
-    } catch (e) {
-        status.textContent = "❌ Camera error: " + e.message;
-        return;
+    // Button handlers
+    document.getElementById("cameraBtn").addEventListener("click", switchCamera);
+    document.getElementById("screenshotBtn").addEventListener("click", takeScreenshot);
+    document.getElementById("toggleBoxBtn").addEventListener("click", () => {
+        showBoxes = !showBoxes;
+        showToast(showBoxes ? "Boxes ON" : "Boxes OFF");
+    });
+    document.getElementById("clearBtn").addEventListener("click", () => {
+        totalDetections = 0;
+        uniqueObjects.clear();
+        totalDetectedEl.textContent = "0";
+        showToast("Stats Cleared");
+    });
+
+    async function switchCamera() {
+        facingMode = facingMode === "environment" ? "user" : "environment";
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+        await startCamera();
+        showToast(facingMode === "environment" ? "Back Camera" : "Front Camera");
     }
 
-    // Load both models for better detection
+    async function startCamera() {
+        try {
+            currentStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    facingMode: facingMode,
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                } 
+            });
+            video.srcObject = currentStream;
+            
+            video.addEventListener('loadeddata', () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+            });
+            
+        } catch (e) {
+            status.textContent = "❌ Camera error: " + e.message;
+            throw e;
+        }
+    }
+
+    function takeScreenshot() {
+        screenshotCanvas.width = video.videoWidth;
+        screenshotCanvas.height = video.videoHeight;
+        screenshotCtx.drawImage(video, 0, 0);
+        
+        // Draw current detections on screenshot
+        screenshotCtx.drawImage(canvas, 0, 0);
+        
+        // Download
+        const link = document.createElement('a');
+        link.download = `detection_${Date.now()}.png`;
+        link.href = screenshotCanvas.toDataURL();
+        link.click();
+        
+        showToast("📸 Screenshot Saved!");
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+    }
+
+    // Start camera
+    await startCamera();
+
+    // Load both models
     try {
         status.textContent = "🤖 Loading AI models (20-30 seconds)...";
         
-        // Load COCO-SSD for object detection
-        cocoModel = await cocoSsd.load({
-            base: 'mobilenet_v2'
-        });
-        
-        // Load MobileNet for image classification (detects 1000+ objects)
-        mobileNetModel = await mobilenet.load({
-            version: 2,
-            alpha: 1.0
-        });
+        cocoModel = await cocoSsd.load({ base: 'mobilenet_v2' });
+        mobileNetModel = await mobilenet.load({ version: 2, alpha: 1.0 });
         
         status.textContent = "✅ AI Ready! Detecting 1000+ object types";
-        status.style.color = "#0f0";
+        status.style.color = "#00ff88";
         detectObjects();
     } catch (e) {
         status.textContent = "❌ Error loading models: " + e.message;
         return;
     }
 
-    const colors = ['#0ff', '#f0f', '#ff0', '#0f0', '#f00', '#00f', '#ffa500', '#ff69b4'];
+    const colors = ['#00f5ff', '#f0f', '#ff0', '#0f0', '#f00', '#00f', '#ffa500', '#ff69b4'];
 
     async function detectObjects() {
         if (!cocoModel || !mobileNetModel) return;
 
-        // Get COCO detections (bounding boxes)
+        // Calculate FPS
+        frameCount++;
+        const currentTime = performance.now();
+        if (currentTime - lastTime >= 1000) {
+            fps = frameCount;
+            fpsCounterEl.textContent = fps;
+            fpsEl.textContent = `${fps} FPS`;
+            frameCount = 0;
+            lastTime = currentTime;
+        }
+
         const cocoDetections = await cocoModel.detect(video, undefined, 0.25);
-        
-        // Get MobileNet classifications (what the whole scene contains)
         const classifications = await mobileNetModel.classify(video, 5);
         
-        // Clear canvas
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (showBoxes) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        } else {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
         
-        // Draw bounding boxes
         ctx.font = "bold 16px Arial";
         ctx.lineWidth = 3;
         
         let detectionsHTML = "";
-        let totalDetections = 0;
+        let currentObjects = 0;
         
-        // Draw COCO detections with boxes
-        if (cocoDetections.length > 0) {
+        if (cocoDetections.length > 0 && showBoxes) {
             cocoDetections.sort((a, b) => b.score - a.score);
             
             cocoDetections.forEach((prediction, index) => {
@@ -164,12 +374,13 @@
                 const confidence = (prediction.score * 100).toFixed(0);
                 const color = colors[index % colors.length];
                 
-                // Draw box
+                uniqueObjects.add(prediction.class);
+                currentObjects++;
+                
                 ctx.strokeStyle = color;
                 ctx.fillStyle = color;
                 ctx.strokeRect(x, y, width, height);
                 
-                // Draw label
                 const label = `${prediction.class.toUpperCase()}`;
                 const confLabel = `${confidence}%`;
                 const textWidth = ctx.measureText(label).width;
@@ -191,39 +402,37 @@
                         <span class="confidence">${confidence}%</span>
                     </div>
                 `;
-                totalDetections++;
             });
         }
         
-        // Add MobileNet classifications (can detect cubes, shapes, etc.)
         if (classifications.length > 0) {
-            detectionsHTML += '<div style="margin-top:15px; padding:10px; background:#1a1a1a; border-radius:5px;"><strong>🔍 Also detected in scene:</strong></div>';
+            detectionsHTML += '<div style="margin-top:15px; padding:10px; background:rgba(255,255,255,0.05); border-radius:5px;"><strong>🔍 Scene Analysis:</strong></div>';
             
             classifications.forEach((classification, index) => {
                 const confidence = (classification.probability * 100).toFixed(0);
-                if (confidence > 15) { // Show if >15% confidence
+                if (confidence > 15) {
                     const color = colors[(cocoDetections.length + index) % colors.length];
+                    currentObjects++;
                     detectionsHTML += `
-                        <div class="detection-item" style="border-left: 4px solid ${color}; opacity:0.8;">
+                        <div class="detection-item" style="border-left: 4px solid ${color}; opacity:0.9;">
                             🎯 <span class="object-name">${classification.className}</span> 
                             <span class="confidence">${confidence}%</span>
                         </div>
                     `;
-                    totalDetections++;
                 }
             });
         }
         
-        if (totalDetections === 0) {
+        if (currentObjects === 0) {
             detectionsHTML = '<div class="detection-item" style="color:#888;">No objects detected - try different angle or better lighting</div>';
-            status.textContent = "❌ No objects detected";
-        } else {
-            status.textContent = `✅ Detected ${totalDetections} object${totalDetections > 1 ? 's' : ''}`;
         }
+        
+        objectCountEl.textContent = currentObjects;
+        totalDetections += currentObjects;
+        totalDetectedEl.textContent = uniqueObjects.size;
         
         detectionsDiv.innerHTML = detectionsHTML;
         
-        // Continue detection
         requestAnimationFrame(detectObjects);
     }
 
