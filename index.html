@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Water Level Detector</title>
+<title>Real-Time Object Detector</title>
 <style>
   body { 
     background:#111; 
@@ -12,115 +12,71 @@
     margin:0;
     padding:20px;
   }
+  #videoContainer {
+    position: relative;
+    display: inline-block;
+    margin-top: 20px;
+  }
   video { 
-    width:80%; 
-    max-width:500px; 
-    margin-top:20px; 
+    width:100%; 
+    max-width:640px; 
     border:3px solid #0ff; 
     border-radius:10px;
+    display: block;
+  }
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
   }
   #status { 
     margin-top:20px; 
     font-size:20px; 
+    color: #0ff;
   }
-  .container { 
-    position:relative; 
-    display:inline-block; 
-    margin-top:20px; 
+  #detections {
+    margin-top: 20px;
+    padding: 20px;
+    background: #222;
+    border-radius: 10px;
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
   }
-  .water-gauge { 
-    width:80px; 
-    height:300px; 
-    background:#222; 
-    border:3px solid #0ff; 
-    border-radius:10px;
-    position:relative;
-    overflow:hidden;
+  .detection-item {
+    padding: 10px;
+    margin: 5px 0;
+    background: #333;
+    border-radius: 5px;
+    font-size: 18px;
   }
-  .water-fill {
-    position:absolute;
-    bottom:0;
-    width:100%;
-    background:linear-gradient(to top, #00ffff, #0088ff);
-    transition:height 0.3s ease;
-    border-radius:0 0 7px 7px;
+  .object-name {
+    color: #0ff;
+    font-weight: bold;
   }
-  .gauge-markers {
-    position:absolute;
-    width:100%;
-    height:100%;
-    top:0;
-    left:0;
-  }
-  .marker {
-    position:absolute;
-    width:100%;
-    height:1px;
-    background:#666;
-    left:0;
-  }
-  .marker-label {
-    position:absolute;
-    right:90px;
-    font-size:12px;
-    color:#888;
-  }
-  #calibrate-btn {
-    padding:10px 20px;
-    font-size:16px;
-    background:#0088ff;
-    color:white;
-    border:none;
-    border-radius:5px;
-    cursor:pointer;
-    margin-top:20px;
-  }
-  #calibrate-btn:hover { 
-    background:#0066cc; 
+  .confidence {
+    color: #0f0;
+    font-size: 14px;
   }
 </style>
 </head>
 <body>
-<h2>Water Level Detector</h2>
+<h2>🎯 Real-Time Object Detector</h2>
 
-<div id="status">Starting camera...</div>
+<div id="status">Loading AI model...</div>
 
-<button id="calibrate-btn" style="display:none;">🔄 Recalibrate</button>
-
-<div style="display:flex; justify-content:center; align-items:flex-start; gap:20px; flex-wrap:wrap;">
+<div id="videoContainer">
   <video id="video" autoplay playsinline></video>
-  
-  <div class="container">
-    <div class="water-gauge">
-      <div class="gauge-markers">
-        <div class="marker" style="top:0%"></div>
-        <span class="marker-label" style="top:0%">100%</span>
-        <div class="marker" style="top:25%"></div>
-        <span class="marker-label" style="top:25%">75%</span>
-        <div class="marker" style="top:50%"></div>
-        <span class="marker-label" style="top:50%">50%</span>
-        <div class="marker" style="top:75%"></div>
-        <span class="marker-label" style="top:75%">25%</span>
-        <div class="marker" style="top:100%"></div>
-        <span class="marker-label" style="top:100%">0%</span>
-      </div>
-      <div class="water-fill" id="water-fill"></div>
-    </div>
-    <div id="level" style="font-size:40px; margin-top:10px; color:#0ff;">0%</div>
-  </div>
+  <canvas id="canvas"></canvas>
 </div>
 
-<canvas id="canvas" style="display:none;"></canvas>
+<div id="detections"></div>
 
-<div style="margin-top:20px;">
-  <label style="font-size:18px;">Alert at: 
-    <select id="threshold" style="font-size:18px; padding:5px;">
-      <option value="80">80%</option>
-      <option value="90" selected>90%</option>
-      <option value="95">95%</option>
-    </select>
-  </label>
-</div>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
 
 <script>
 (async () => {
@@ -128,196 +84,95 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const status = document.getElementById("status");
-    const levelDisplay = document.getElementById("level");
-    const waterFill = document.getElementById("water-fill");
-    const thresholdSelect = document.getElementById("threshold");
-    const calibrateBtn = document.getElementById("calibrate-btn");
+    const detectionsDiv = document.getElementById("detections");
     
-    let hasAlarmed = false;
-    let containerBottom = null; // Y position of container bottom
-    let containerTop = null;    // Y position of container top
-    let isCalibrated = false;
+    let model = null;
 
     // Start webcam with back camera
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
                 facingMode: { ideal: "environment" },
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
+                width: { ideal: 640 },
+                height: { ideal: 480 }
             } 
         });
         video.srcObject = stream;
-        status.textContent = "STEP 1: Point at EMPTY bottle, click 'Set Empty'";
-        calibrateBtn.style.display = "inline-block";
-        calibrateBtn.textContent = "1️⃣ Set Empty Bottle";
+        
+        video.addEventListener('loadeddata', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        });
+        
     } catch (e) {
-        status.textContent = "Camera error: " + e.message;
+        status.textContent = "❌ Camera error: " + e.message;
         return;
     }
 
-    let calibrationStep = 0;
+    // Load COCO-SSD model
+    try {
+        status.textContent = "🤖 Loading AI model...";
+        model = await cocoSsd.load();
+        status.textContent = "✅ Ready! Point camera at objects";
+        status.style.color = "#0f0";
+        detectObjects();
+    } catch (e) {
+        status.textContent = "❌ Error loading model: " + e.message;
+        return;
+    }
 
-    calibrateBtn.addEventListener('click', () => {
-        const w = video.videoWidth;
-        const h = video.videoHeight;
+    async function detectObjects() {
+        if (!model) return;
+
+        // Run detection
+        const predictions = await model.detect(video);
         
-        if (!w || !h) {
-            status.textContent = "Wait for camera...";
-            return;
-        }
-
-        if (calibrationStep === 0) {
-            // Step 1: Mark empty bottle (top of container)
-            containerTop = detectWaterSurface();
-            calibrationStep = 1;
-            status.textContent = "STEP 2: Fill bottle to MAX, then click 'Set Full'";
-            calibrateBtn.textContent = "2️⃣ Set Full Bottle";
-        } else if (calibrationStep === 1) {
-            // Step 2: Mark full bottle (bottom reference)
-            containerBottom = detectWaterSurface();
-            
-            if (containerBottom && containerTop && containerBottom > containerTop) {
-                isCalibrated = true;
-                status.textContent = "✓ Ready! Fill water and watch percentage";
-                status.style.color = "#0f0";
-                calibrateBtn.textContent = "🔄 Restart Calibration";
-                calibrationStep = 2;
-            } else {
-                status.textContent = "ERROR: Make sure full level is below empty. Try again.";
-                calibrationStep = 0;
-                containerTop = null;
-                containerBottom = null;
-            }
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw bounding boxes and labels
+        ctx.font = "18px Arial";
+        ctx.lineWidth = 3;
+        
+        let detectionsHTML = "";
+        
+        if (predictions.length === 0) {
+            detectionsHTML = '<div class="detection-item">No objects detected</div>';
         } else {
-            // Reset calibration
-            calibrationStep = 0;
-            isCalibrated = false;
-            containerTop = null;
-            containerBottom = null;
-            status.textContent = "STEP 1: Point at EMPTY bottle, click 'Set Empty'";
-            status.style.color = "#fff";
-            calibrateBtn.textContent = "1️⃣ Set Empty Bottle";
+            predictions.forEach((prediction, index) => {
+                const [x, y, width, height] = prediction.bbox;
+                const confidence = (prediction.score * 100).toFixed(1);
+                
+                // Draw box
+                ctx.strokeStyle = "#0ff";
+                ctx.fillStyle = "#0ff";
+                ctx.strokeRect(x, y, width, height);
+                
+                // Draw label background
+                const label = `${prediction.class} ${confidence}%`;
+                const textWidth = ctx.measureText(label).width;
+                ctx.fillStyle = "#0ff";
+                ctx.fillRect(x, y - 25, textWidth + 10, 25);
+                
+                // Draw label text
+                ctx.fillStyle = "#000";
+                ctx.fillText(label, x + 5, y - 7);
+                
+                // Add to list
+                detectionsHTML += `
+                    <div class="detection-item">
+                        <span class="object-name">${prediction.class}</span> 
+                        <span class="confidence">(${confidence}% confident)</span>
+                    </div>
+                `;
+            });
         }
-    });
-
-    function detectWaterSurface() {
-        const w = video.videoWidth;
-        const h = video.videoHeight;
         
-        canvas.width = w;
-        canvas.height = h;
-        ctx.drawImage(video, 0, 0, w, h);
-
-        // Scan center vertical line for the biggest brightness change
-        const centerX = Math.floor(w / 2);
-        let maxChange = 0;
-        let surfaceY = h / 2;
-
-        for (let y = Math.floor(h * 0.2); y < Math.floor(h * 0.8); y++) {
-            const pixel1 = ctx.getImageData(centerX, y, 1, 1).data;
-            const pixel2 = ctx.getImageData(centerX, y + 5, 1, 1).data;
-            
-            const brightness1 = 0.3 * pixel1[0] + 0.59 * pixel1[1] + 0.11 * pixel1[2];
-            const brightness2 = 0.3 * pixel2[0] + 0.59 * pixel2[1] + 0.11 * pixel2[2];
-            
-            const change = Math.abs(brightness1 - brightness2);
-            
-            if (change > maxChange) {
-                maxChange = change;
-                surfaceY = y;
-            }
-        }
-
-        return surfaceY;
+        detectionsDiv.innerHTML = detectionsHTML;
+        
+        // Continue detection
+        requestAnimationFrame(detectObjects);
     }
-
-    function playAlarm() {
-        try {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            
-            oscillator.type = "square";
-            oscillator.frequency.setValueAtTime(900, audioCtx.currentTime);
-            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.start();
-            
-            let toggle = true;
-            const interval = setInterval(() => {
-                oscillator.frequency.setValueAtTime(toggle ? 900 : 1100, audioCtx.currentTime);
-                toggle = !toggle;
-            }, 400);
-            
-            setTimeout(() => {
-                clearInterval(interval);
-                oscillator.stop();
-                audioCtx.close();
-            }, 5000);
-        } catch (e) {
-            console.log("Audio error:", e);
-        }
-    }
-
-    function check() {
-        if (!isCalibrated) {
-            requestAnimationFrame(check);
-            return;
-        }
-
-        // Detect current water surface
-        const currentSurface = detectWaterSurface();
-        
-        // Calculate percentage based on position between empty and full
-        const totalRange = containerBottom - containerTop;
-        const currentFill = currentSurface - containerTop;
-        let waterPercentage = (currentFill / totalRange) * 100;
-        waterPercentage = Math.max(0, Math.min(100, waterPercentage));
-        
-        const threshold = parseInt(thresholdSelect.value);
-        
-        // Update display
-        const displayPercent = Math.round(waterPercentage);
-        levelDisplay.textContent = displayPercent + "%";
-        waterFill.style.height = waterPercentage + "%";
-        
-        if (waterPercentage >= threshold) {
-            status.textContent = "⚠️ ALERT: Water at " + displayPercent + "%!";
-            status.style.color = "#ff0000";
-            status.style.fontSize = "28px";
-            levelDisplay.style.color = "#ff0000";
-            waterFill.style.background = "linear-gradient(to top, #ff0000, #ff6600)";
-            document.body.style.backgroundColor = "#330000";
-            
-            if (!hasAlarmed) {
-                playAlarm();
-                hasAlarmed = true;
-            }
-        } else if (waterPercentage >= threshold - 15) {
-            status.textContent = "Warning: " + displayPercent + "% (close to " + threshold + "%)";
-            status.style.color = "#ffaa00";
-            status.style.fontSize = "22px";
-            levelDisplay.style.color = "#ffaa00";
-            waterFill.style.background = "linear-gradient(to top, #ffaa00, #ffdd00)";
-            document.body.style.backgroundColor = "#111";
-            hasAlarmed = false;
-        } else {
-            status.textContent = "Water Level: " + displayPercent + "%";
-            status.style.color = "#0f0";
-            status.style.fontSize = "20px";
-            levelDisplay.style.color = "#0ff";
-            waterFill.style.background = "linear-gradient(to top, #00ffff, #0088ff)";
-            document.body.style.backgroundColor = "#111";
-            hasAlarmed = false;
-        }
-
-        requestAnimationFrame(check);
-    }
-
-    check();
 })();
 </script>
 </body>
