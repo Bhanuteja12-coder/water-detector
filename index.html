@@ -10,12 +10,26 @@
 </style>
 </head>
 <body>
-<h2>Webcam Water Full Detector - Test</h2>
+<h2>Webcam Water Level Detector</h2>
 
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas" style="display:none;"></canvas>
 
 <div id="status">Starting camera...</div>
+<div id="level" style="font-size:40px; margin-top:20px; color:#0ff;">0%</div>
+
+<div style="margin-top:30px;">
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const status = document.getElementById("status");
+    const levelDisplay = document.getElementById("level");
+    const thresholdSelect = document.getElementById("threshold");
+    let hasAlarmed = false;
+      <option value="95">95%</option>
+    </select>
+  </label>
+</div>
 
 <script>
 (async () => {
@@ -33,22 +47,12 @@
         status.textContent = "Camera started. Point at the pot from above.";
     } catch (e) {
         status.textContent = "Camera error. Allow camera access.";
-        return;
-    }
-
-    let audioCtx = null;
-    let oscillator = null;
-    let isAlarming = false;
-
-    function startAlarm() {
-        if (isAlarming) return;
-        isAlarming = true;
-        
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        oscillator = audioCtx.createOscillator();
+    function playAlarm() {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
         
-        oscillator.type = "square"; // Harsher, more attention-grabbing sound
+        oscillator.type = "square";
         oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
         
         gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
@@ -59,24 +63,18 @@
         
         // Alternating frequency for siren effect
         let toggle = true;
-        setInterval(() => {
-            if (oscillator && isAlarming) {
-                oscillator.frequency.setValueAtTime(toggle ? 800 : 1000, audioCtx.currentTime);
-                toggle = !toggle;
-            }
-        }, 500);
-    }
-
-    function stopAlarm() {
-        if (!isAlarming) return;
-        isAlarming = false;
+        const interval = setInterval(() => {
+            oscillator.frequency.setValueAtTime(toggle ? 800 : 1000, audioCtx.currentTime);
+            toggle = !toggle;
+        }, 300);
         
-        if (oscillator) {
+        // Stop after 5 seconds
+        setTimeout(() => {
+            clearInterval(interval);
             oscillator.stop();
-            oscillator = null;
-        }
-        if (audioCtx) {
             audioCtx.close();
+        }, 5000);
+    }       audioCtx.close();
             audioCtx = null;
         }
     }
@@ -97,6 +95,22 @@
         let total = 0;
 
         for (let i = 0; i < img.data.length; i += 4) {
+    function check() {
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+
+        if (!w || !h) return requestAnimationFrame(check);
+
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(video, 0, 0, w, h);
+
+        // Sample from top area to detect water level
+        const sampleHeight = Math.floor(h * 0.12);
+        const img = ctx.getImageData(0, 0, w, sampleHeight);
+        let total = 0;
+
+        for (let i = 0; i < img.data.length; i += 4) {
             const r = img.data[i];
             const g = img.data[i + 1];
             const b = img.data[i + 2];
@@ -104,34 +118,44 @@
         }
 
         const avg = total / (img.data.length / 4);
-
-        // Simple detection: when water reaches top, brightness changes sharply
-        if (avg < 60) {
-            status.textContent = "⚠️ WATER FULL — ALARM! Tap screen to stop";
+        
+        // Convert brightness to water level percentage (inverted: lower brightness = more water)
+        // Calibrate: avg ~150 = 0%, avg ~60 = 100%
+        const maxBrightness = 150;
+        const minBrightness = 60;
+        let waterLevel = ((maxBrightness - avg) / (maxBrightness - minBrightness)) * 100;
+        waterLevel = Math.max(0, Math.min(100, waterLevel)); // Clamp between 0-100
+        
+        const threshold = parseInt(thresholdSelect.value);
+        
+        // Update display
+        levelDisplay.textContent = Math.round(waterLevel) + "%";
+        
+        if (waterLevel >= threshold) {
+            status.textContent = "⚠️ WATER LEVEL ALERT!";
             status.style.color = "#ff0000";
             status.style.fontSize = "30px";
-            status.style.fontWeight = "bold";
+            levelDisplay.style.color = "#ff0000";
             document.body.style.backgroundColor = "#ff0000";
-            startAlarm();
+            
+            if (!hasAlarmed) {
+                playAlarm();
+                hasAlarmed = true;
+            }
+        } else if (waterLevel >= threshold - 10) {
+            status.textContent = "⚠️ Getting close...";
+            status.style.color = "#ffaa00";
+            status.style.fontSize = "24px";
+            levelDisplay.style.color = "#ffaa00";
+            document.body.style.backgroundColor = "#111";
         } else {
-            status.textContent = "Not full. Avg: " + avg.toFixed(1);
+            status.textContent = "Monitoring water level";
             status.style.color = "#0f0";
             status.style.fontSize = "20px";
-            status.style.fontWeight = "normal";
+            levelDisplay.style.color = "#0ff";
             document.body.style.backgroundColor = "#111";
-            stopAlarm();
+            hasAlarmed = false; // Reset alarm flag when level drops
         }
 
         requestAnimationFrame(check);
     }
-
-    // Allow user to stop alarm by tapping screen
-    document.body.addEventListener('click', () => {
-        stopAlarm();
-    });
-
-    check();
-})();
-</script>
-</body>
-</html>
