@@ -134,130 +134,95 @@
     const calibrateBtn = document.getElementById("calibrate-btn");
     
     let hasAlarmed = false;
-    let baselineLevel = null;
-    let maxLevel = null;
+    let emptyLevel = null;
+    let fullLevel = null;
     let isCalibrated = false;
-    let samples = [];
-    let calibrationSamples = [];
 
     // Start webcam with back camera
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
                 facingMode: { ideal: "environment" },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
             } 
         });
         video.srcObject = stream;
-        
-        // Auto-calibrate after camera starts
-        video.addEventListener('loadeddata', () => {
-            setTimeout(() => {
-                status.textContent = "Hold camera steady over empty container...";
-                setTimeout(autoCalibrate, 2000);
-            }, 500);
-        });
-        
+        status.textContent = "Point camera at EMPTY container, then click Calibrate";
+        calibrateBtn.style.display = "inline-block";
+        calibrateBtn.textContent = "📸 Calibrate Empty Container";
     } catch (e) {
         status.textContent = "Camera error: " + e.message;
         return;
     }
 
-    function autoCalibrate() {
-        status.textContent = "Calibrating...";
-        calibrationSamples = [];
-        
-        // Take 30 samples over 1.5 seconds
-        let count = 0;
-        const calibInterval = setInterval(() => {
-            const level = detectWaterLevel();
-            if (level !== null) {
-                calibrationSamples.push(level);
-                count++;
-                
-                if (count >= 30) {
-                    clearInterval(calibInterval);
-                    finishCalibration();
-                }
-            }
-        }, 50);
-    }
-
-    function finishCalibration() {
-        // Use average of samples as baseline (empty container)
-        baselineLevel = calibrationSamples.reduce((a, b) => a + b, 0) / calibrationSamples.length;
-        maxLevel = baselineLevel + 100; // Adjust range
-        isCalibrated = true;
-        calibrateBtn.style.display = "inline-block";
-        status.textContent = "✓ Ready! Show water filling...";
-        status.style.color = "#0f0";
-    }
-
-    // Recalibrate button
+    // Manual calibration
     calibrateBtn.addEventListener('click', () => {
-        isCalibrated = false;
-        samples = [];
-        status.textContent = "Hold camera steady over empty container...";
-        status.style.color = "#fff";
-        calibrateBtn.style.display = "none";
-        setTimeout(autoCalibrate, 1000);
-    });
-
-    function detectWaterLevel() {
         const w = video.videoWidth;
         const h = video.videoHeight;
         
-        if (!w || !h) return null;
+        if (!w || !h) {
+            status.textContent = "Wait for camera...";
+            return;
+        }
 
         canvas.width = w;
         canvas.height = h;
         ctx.drawImage(video, 0, 0, w, h);
 
-        // Analyze vertical gradient to detect water surface
-        // Sample center column and detect color/brightness changes
-        const centerX = Math.floor(w / 2);
-        const pixelData = [];
-        
-        for (let y = 0; y < h; y += 2) {
-            const pixel = ctx.getImageData(centerX, y, 1, 1).data;
-            const brightness = 0.3 * pixel[0] + 0.59 * pixel[1] + 0.11 * pixel[2];
-            pixelData.push(brightness);
+        // Sample bottom 40% of frame (where water level is)
+        const startY = Math.floor(h * 0.6);
+        const img = ctx.getImageData(0, startY, w, h - startY);
+        let totalBlue = 0;
+        let totalBrightness = 0;
+        let pixelCount = img.data.length / 4;
+
+        for (let i = 0; i < img.data.length; i += 4) {
+            const r = img.data[i];
+            const g = img.data[i + 1];
+            const b = img.data[i + 2];
+            totalBrightness += (0.3 * r + 0.59 * g + 0.11 * b);
+            totalBlue += b;
         }
+
+        emptyLevel = totalBrightness / pixelCount;
+        // Water typically has more blue and is darker
+        fullLevel = emptyLevel * 0.6;
         
-        // Calculate variance to detect water surface
-        let totalVariance = 0;
-        for (let i = 1; i < pixelData.length; i++) {
-            totalVariance += Math.abs(pixelData[i] - pixelData[i-1]);
-        }
-        
-        return totalVariance;
-    }
+        isCalibrated = true;
+        status.textContent = "✓ Calibrated! Now you can fill water";
+        status.style.color = "#0f0";
+        calibrateBtn.textContent = "🔄 Recalibrate";
+    });
 
     function playAlarm() {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        
-        oscillator.type = "square";
-        oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
-        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        
-        let toggle = true;
-        const interval = setInterval(() => {
-            oscillator.frequency.setValueAtTime(toggle ? 800 : 1000, audioCtx.currentTime);
-            toggle = !toggle;
-        }, 300);
-        
-        setTimeout(() => {
-            clearInterval(interval);
-            oscillator.stop();
-            audioCtx.close();
-        }, 5000);
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            oscillator.type = "square";
+            oscillator.frequency.setValueAtTime(900, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+            
+            let toggle = true;
+            const interval = setInterval(() => {
+                oscillator.frequency.setValueAtTime(toggle ? 900 : 1100, audioCtx.currentTime);
+                toggle = !toggle;
+            }, 400);
+            
+            setTimeout(() => {
+                clearInterval(interval);
+                oscillator.stop();
+                audioCtx.close();
+            }, 5000);
+        } catch (e) {
+            console.log("Audio error:", e);
+        }
     }
 
     function check() {
@@ -266,50 +231,66 @@
             return;
         }
 
-        const currentLevel = detectWaterLevel();
-        
-        if (currentLevel === null) {
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+
+        if (!w || !h) {
             requestAnimationFrame(check);
             return;
         }
+
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(video, 0, 0, w, h);
+
+        // Sample bottom 40% of frame
+        const startY = Math.floor(h * 0.6);
+        const img = ctx.getImageData(0, startY, w, h - startY);
+        let totalBrightness = 0;
+        let pixelCount = img.data.length / 4;
+
+        for (let i = 0; i < img.data.length; i += 4) {
+            const r = img.data[i];
+            const g = img.data[i + 1];
+            const b = img.data[i + 2];
+            totalBrightness += (0.3 * r + 0.59 * g + 0.11 * b);
+        }
+
+        const currentLevel = totalBrightness / pixelCount;
         
-        // Smooth with moving average
-        samples.push(currentLevel);
-        if (samples.length > 15) samples.shift();
-        
-        const smoothedLevel = samples.reduce((a, b) => a + b, 0) / samples.length;
-        
-        // Calculate percentage: higher variance = more water
-        let waterPercentage = ((smoothedLevel - baselineLevel) / (maxLevel - baselineLevel)) * 100;
+        // Calculate percentage (darker = more water)
+        let waterPercentage = ((emptyLevel - currentLevel) / (emptyLevel - fullLevel)) * 100;
         waterPercentage = Math.max(0, Math.min(100, waterPercentage));
         
         const threshold = parseInt(thresholdSelect.value);
         
         // Update display
-        levelDisplay.textContent = Math.round(waterPercentage) + "%";
+        const displayPercent = Math.round(waterPercentage);
+        levelDisplay.textContent = displayPercent + "%";
         waterFill.style.height = waterPercentage + "%";
         
         if (waterPercentage >= threshold) {
-            status.textContent = "⚠️ WATER LEVEL ALERT!";
+            status.textContent = "⚠️ ALERT: Water at " + displayPercent + "%!";
             status.style.color = "#ff0000";
-            status.style.fontSize = "30px";
+            status.style.fontSize = "28px";
             levelDisplay.style.color = "#ff0000";
             waterFill.style.background = "linear-gradient(to top, #ff0000, #ff6600)";
-            document.body.style.backgroundColor = "#ff0000";
+            document.body.style.backgroundColor = "#330000";
             
             if (!hasAlarmed) {
                 playAlarm();
                 hasAlarmed = true;
             }
-        } else if (waterPercentage >= threshold - 10) {
-            status.textContent = "⚠️ Getting close... " + Math.round(waterPercentage) + "%";
+        } else if (waterPercentage >= threshold - 15) {
+            status.textContent = "Warning: " + displayPercent + "% (close to " + threshold + "%)";
             status.style.color = "#ffaa00";
-            status.style.fontSize = "24px";
+            status.style.fontSize = "22px";
             levelDisplay.style.color = "#ffaa00";
             waterFill.style.background = "linear-gradient(to top, #ffaa00, #ffdd00)";
             document.body.style.backgroundColor = "#111";
+            hasAlarmed = false;
         } else {
-            status.textContent = "Water Level: " + Math.round(waterPercentage) + "%";
+            status.textContent = "Water Level: " + displayPercent + "%";
             status.style.color = "#0f0";
             status.style.fontSize = "20px";
             levelDisplay.style.color = "#0ff";
