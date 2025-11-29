@@ -134,8 +134,8 @@
     const calibrateBtn = document.getElementById("calibrate-btn");
     
     let hasAlarmed = false;
-    let emptyLevel = null;
-    let fullLevel = null;
+    let containerBottom = null; // Y position of container bottom
+    let containerTop = null;    // Y position of container top
     let isCalibrated = false;
 
     // Start webcam with back camera
@@ -148,15 +148,16 @@
             } 
         });
         video.srcObject = stream;
-        status.textContent = "Point camera at EMPTY container, then click Calibrate";
+        status.textContent = "STEP 1: Point at EMPTY bottle, click 'Set Empty'";
         calibrateBtn.style.display = "inline-block";
-        calibrateBtn.textContent = "📸 Calibrate Empty Container";
+        calibrateBtn.textContent = "1️⃣ Set Empty Bottle";
     } catch (e) {
         status.textContent = "Camera error: " + e.message;
         return;
     }
 
-    // Manual calibration
+    let calibrationStep = 0;
+
     calibrateBtn.addEventListener('click', () => {
         const w = video.videoWidth;
         const h = video.videoHeight;
@@ -166,34 +167,70 @@
             return;
         }
 
+        if (calibrationStep === 0) {
+            // Step 1: Mark empty bottle (top of container)
+            containerTop = detectWaterSurface();
+            calibrationStep = 1;
+            status.textContent = "STEP 2: Fill bottle to MAX, then click 'Set Full'";
+            calibrateBtn.textContent = "2️⃣ Set Full Bottle";
+        } else if (calibrationStep === 1) {
+            // Step 2: Mark full bottle (bottom reference)
+            containerBottom = detectWaterSurface();
+            
+            if (containerBottom && containerTop && containerBottom > containerTop) {
+                isCalibrated = true;
+                status.textContent = "✓ Ready! Fill water and watch percentage";
+                status.style.color = "#0f0";
+                calibrateBtn.textContent = "🔄 Restart Calibration";
+                calibrationStep = 2;
+            } else {
+                status.textContent = "ERROR: Make sure full level is below empty. Try again.";
+                calibrationStep = 0;
+                containerTop = null;
+                containerBottom = null;
+            }
+        } else {
+            // Reset calibration
+            calibrationStep = 0;
+            isCalibrated = false;
+            containerTop = null;
+            containerBottom = null;
+            status.textContent = "STEP 1: Point at EMPTY bottle, click 'Set Empty'";
+            status.style.color = "#fff";
+            calibrateBtn.textContent = "1️⃣ Set Empty Bottle";
+        }
+    });
+
+    function detectWaterSurface() {
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        
         canvas.width = w;
         canvas.height = h;
         ctx.drawImage(video, 0, 0, w, h);
 
-        // Sample bottom 40% of frame (where water level is)
-        const startY = Math.floor(h * 0.6);
-        const img = ctx.getImageData(0, startY, w, h - startY);
-        let totalBlue = 0;
-        let totalBrightness = 0;
-        let pixelCount = img.data.length / 4;
+        // Scan center vertical line for the biggest brightness change
+        const centerX = Math.floor(w / 2);
+        let maxChange = 0;
+        let surfaceY = h / 2;
 
-        for (let i = 0; i < img.data.length; i += 4) {
-            const r = img.data[i];
-            const g = img.data[i + 1];
-            const b = img.data[i + 2];
-            totalBrightness += (0.3 * r + 0.59 * g + 0.11 * b);
-            totalBlue += b;
+        for (let y = Math.floor(h * 0.2); y < Math.floor(h * 0.8); y++) {
+            const pixel1 = ctx.getImageData(centerX, y, 1, 1).data;
+            const pixel2 = ctx.getImageData(centerX, y + 5, 1, 1).data;
+            
+            const brightness1 = 0.3 * pixel1[0] + 0.59 * pixel1[1] + 0.11 * pixel1[2];
+            const brightness2 = 0.3 * pixel2[0] + 0.59 * pixel2[1] + 0.11 * pixel2[2];
+            
+            const change = Math.abs(brightness1 - brightness2);
+            
+            if (change > maxChange) {
+                maxChange = change;
+                surfaceY = y;
+            }
         }
 
-        emptyLevel = totalBrightness / pixelCount;
-        // Water typically has more blue and is darker
-        fullLevel = emptyLevel * 0.6;
-        
-        isCalibrated = true;
-        status.textContent = "✓ Calibrated! Now you can fill water";
-        status.style.color = "#0f0";
-        calibrateBtn.textContent = "🔄 Recalibrate";
-    });
+        return surfaceY;
+    }
 
     function playAlarm() {
         try {
@@ -231,35 +268,13 @@
             return;
         }
 
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-
-        if (!w || !h) {
-            requestAnimationFrame(check);
-            return;
-        }
-
-        canvas.width = w;
-        canvas.height = h;
-        ctx.drawImage(video, 0, 0, w, h);
-
-        // Sample bottom 40% of frame
-        const startY = Math.floor(h * 0.6);
-        const img = ctx.getImageData(0, startY, w, h - startY);
-        let totalBrightness = 0;
-        let pixelCount = img.data.length / 4;
-
-        for (let i = 0; i < img.data.length; i += 4) {
-            const r = img.data[i];
-            const g = img.data[i + 1];
-            const b = img.data[i + 2];
-            totalBrightness += (0.3 * r + 0.59 * g + 0.11 * b);
-        }
-
-        const currentLevel = totalBrightness / pixelCount;
+        // Detect current water surface
+        const currentSurface = detectWaterSurface();
         
-        // Calculate percentage (darker = more water)
-        let waterPercentage = ((emptyLevel - currentLevel) / (emptyLevel - fullLevel)) * 100;
+        // Calculate percentage based on position between empty and full
+        const totalRange = containerBottom - containerTop;
+        const currentFill = currentSurface - containerTop;
+        let waterPercentage = (currentFill / totalRange) * 100;
         waterPercentage = Math.max(0, Math.min(100, waterPercentage));
         
         const threshold = parseInt(thresholdSelect.value);
