@@ -24,24 +24,61 @@
     const ctx = canvas.getContext("2d");
     const status = document.getElementById("status");
 
-    // Start webcam
+    // Start webcam with back camera
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: { ideal: "environment" } } 
+        });
         video.srcObject = stream;
-        status.textContent = "Camera started. Show the pot in front of webcam.";
+        status.textContent = "Camera started. Point at the pot from above.";
     } catch (e) {
         status.textContent = "Camera error. Allow camera access.";
         return;
     }
 
-    function beep() {
-        const ctxA = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctxA.createOscillator();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(1000, ctxA.currentTime);
-        osc.connect(ctxA.destination);
-        osc.start();
-        setTimeout(() => osc.stop(), 300);
+    let audioCtx = null;
+    let oscillator = null;
+    let isAlarming = false;
+
+    function startAlarm() {
+        if (isAlarming) return;
+        isAlarming = true;
+        
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        oscillator.type = "square"; // Harsher, more attention-grabbing sound
+        oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+        
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        
+        // Alternating frequency for siren effect
+        let toggle = true;
+        setInterval(() => {
+            if (oscillator && isAlarming) {
+                oscillator.frequency.setValueAtTime(toggle ? 800 : 1000, audioCtx.currentTime);
+                toggle = !toggle;
+            }
+        }, 500);
+    }
+
+    function stopAlarm() {
+        if (!isAlarming) return;
+        isAlarming = false;
+        
+        if (oscillator) {
+            oscillator.stop();
+            oscillator = null;
+        }
+        if (audioCtx) {
+            audioCtx.close();
+            audioCtx = null;
+        }
     }
 
     function check() {
@@ -70,14 +107,28 @@
 
         // Simple detection: when water reaches top, brightness changes sharply
         if (avg < 60) {
-            status.textContent = "⚠️ WATER FULL — Alarm!";
-            beep();
+            status.textContent = "⚠️ WATER FULL — ALARM! Tap screen to stop";
+            status.style.color = "#ff0000";
+            status.style.fontSize = "30px";
+            status.style.fontWeight = "bold";
+            document.body.style.backgroundColor = "#ff0000";
+            startAlarm();
         } else {
             status.textContent = "Not full. Avg: " + avg.toFixed(1);
+            status.style.color = "#0f0";
+            status.style.fontSize = "20px";
+            status.style.fontWeight = "normal";
+            document.body.style.backgroundColor = "#111";
+            stopAlarm();
         }
 
         requestAnimationFrame(check);
     }
+
+    // Allow user to stop alarm by tapping screen
+    document.body.addEventListener('click', () => {
+        stopAlarm();
+    });
 
     check();
 })();
