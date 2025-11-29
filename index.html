@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Water Level Test</title>
+<style>
+  body { background:#111; color:#eee; font-family:Arial; text-align:center; }
+  video { width:80%; margin-top:20px; border:3px solid #0ff; }
+  #status { margin-top:20px; font-size:20px; }
+</style>
+</head>
+<body>
+<h2>Webcam Water Full Detector - Test</h2>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas" style="display:none;"></canvas>
+
+<div id="status">Starting camera...</div>
+
+<script>
+(async () => {
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const status = document.getElementById("status");
+
+    // Start webcam
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        status.textContent = "Camera started. Show the pot in front of webcam.";
+    } catch (e) {
+        status.textContent = "Camera error. Allow camera access.";
+        return;
+    }
+
+    function beep() {
+        const ctxA = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctxA.createOscillator();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1000, ctxA.currentTime);
+        osc.connect(ctxA.destination);
+        osc.start();
+        setTimeout(() => osc.stop(), 300);
+    }
+
+    function check() {
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+
+        if (!w || !h) return requestAnimationFrame(check);
+
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(video, 0, 0, w, h);
+
+        // Take sample from top area
+        const sampleHeight = Math.floor(h * 0.12);
+        const img = ctx.getImageData(0, 0, w, sampleHeight);
+        let total = 0;
+
+        for (let i = 0; i < img.data.length; i += 4) {
+            const r = img.data[i];
+            const g = img.data[i + 1];
+            const b = img.data[i + 2];
+            total += (0.3*r + 0.59*g + 0.11*b);
+        }
+
+        const avg = total / (img.data.length / 4);
+
+        // Simple detection: when water reaches top, brightness changes sharply
+        if (avg < 60) {
+            status.textContent = "⚠️ WATER FULL — Alarm!";
+            beep();
+        } else {
+            status.textContent = "Not full. Avg: " + avg.toFixed(1);
+        }
+
+        requestAnimationFrame(check);
+    }
+
+    check();
+})();
+</script>
+</body>
+</html>
