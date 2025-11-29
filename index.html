@@ -109,11 +109,13 @@
         return;
     }
 
-    // Load COCO-SSD model
+    // Load COCO-SSD model with base mobilenet_v2
     try {
-        status.textContent = "🤖 Loading AI model...";
-        model = await cocoSsd.load();
-        status.textContent = "✅ Ready! Point camera at objects";
+        status.textContent = "🤖 Loading AI model (this may take 10-20 seconds)...";
+        model = await cocoSsd.load({
+            base: 'mobilenet_v2' // More accurate than default
+        });
+        status.textContent = "✅ AI Ready! Point at objects (80+ types supported)";
         status.style.color = "#0f0";
         detectObjects();
     } catch (e) {
@@ -121,57 +123,159 @@
         return;
     }
 
+    const colors = ['#0ff', '#f0f', '#ff0', '#0f0', '#f00', '#00f'];
+    let colorIndex = 0;
+
     async function detectObjects() {
         if (!model) return;
 
-        // Run detection
-        const predictions = await model.detect(video);
+        // Run detection with lower score threshold to detect more objects
+        const predictions = await model.detect(video, undefined, 0.3); // 30% confidence threshold
         
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
         // Draw bounding boxes and labels
-        ctx.font = "18px Arial";
+        ctx.font = "bold 16px Arial";
         ctx.lineWidth = 3;
         
         let detectionsHTML = "";
         
         if (predictions.length === 0) {
-            detectionsHTML = '<div class="detection-item">No objects detected</div>';
+            detectionsHTML = '<div class="detection-item" style="color:#888;">No objects detected - try moving camera closer</div>';
         } else {
+            // Sort by confidence
+            predictions.sort((a, b) => b.score - a.score);
+            
             predictions.forEach((prediction, index) => {
                 const [x, y, width, height] = prediction.bbox;
-                const confidence = (prediction.score * 100).toFixed(1);
+                const confidence = (prediction.score * 100).toFixed(0);
+                const color = colors[index % colors.length];
                 
                 // Draw box
-                ctx.strokeStyle = "#0ff";
-                ctx.fillStyle = "#0ff";
+                ctx.strokeStyle = color;
+                ctx.fillStyle = color;
                 ctx.strokeRect(x, y, width, height);
                 
                 // Draw label background
-                const label = `${prediction.class} ${confidence}%`;
+                const label = `${prediction.class.toUpperCase()}`;
+                const confLabel = `${confidence}%`;
                 const textWidth = ctx.measureText(label).width;
-                ctx.fillStyle = "#0ff";
-                ctx.fillRect(x, y - 25, textWidth + 10, 25);
+                const confWidth = ctx.measureText(confLabel).width;
+                
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y - 30, Math.max(textWidth, confWidth) + 15, 30);
                 
                 // Draw label text
                 ctx.fillStyle = "#000";
-                ctx.fillText(label, x + 5, y - 7);
+                ctx.fillText(label, x + 5, y - 12);
+                ctx.font = "12px Arial";
+                ctx.fillText(confLabel, x + 5, y - 2);
+                ctx.font = "bold 16px Arial";
                 
                 // Add to list
+                const emoji = getEmoji(prediction.class);
                 detectionsHTML += `
-                    <div class="detection-item">
-                        <span class="object-name">${prediction.class}</span> 
-                        <span class="confidence">(${confidence}% confident)</span>
+                    <div class="detection-item" style="border-left: 4px solid ${color};">
+                        ${emoji} <span class="object-name">${prediction.class}</span> 
+                        <span class="confidence">${confidence}%</span>
                     </div>
                 `;
             });
+            
+            status.textContent = `✅ Detected ${predictions.length} object${predictions.length > 1 ? 's' : ''}`;
         }
         
         detectionsDiv.innerHTML = detectionsHTML;
         
         // Continue detection
         requestAnimationFrame(detectObjects);
+    }
+
+    function getEmoji(className) {
+        const emojiMap = {
+            'person': '👤',
+            'bicycle': '🚲',
+            'car': '🚗',
+            'motorcycle': '🏍️',
+            'airplane': '✈️',
+            'bus': '🚌',
+            'train': '🚆',
+            'truck': '🚚',
+            'boat': '⛵',
+            'traffic light': '🚦',
+            'fire hydrant': '🚒',
+            'stop sign': '🛑',
+            'parking meter': '🅿️',
+            'bench': '🪑',
+            'bird': '🐦',
+            'cat': '🐱',
+            'dog': '🐕',
+            'horse': '🐴',
+            'sheep': '🐑',
+            'cow': '🐄',
+            'elephant': '🐘',
+            'bear': '🐻',
+            'zebra': '🦓',
+            'giraffe': '🦒',
+            'backpack': '🎒',
+            'umbrella': '☂️',
+            'handbag': '👜',
+            'tie': '👔',
+            'suitcase': '🧳',
+            'frisbee': '🥏',
+            'skis': '🎿',
+            'snowboard': '🏂',
+            'sports ball': '⚽',
+            'kite': '🪁',
+            'baseball bat': '⚾',
+            'baseball glove': '🥎',
+            'skateboard': '🛹',
+            'surfboard': '🏄',
+            'tennis racket': '🎾',
+            'bottle': '🍾',
+            'wine glass': '🍷',
+            'cup': '☕',
+            'fork': '🍴',
+            'knife': '🔪',
+            'spoon': '🥄',
+            'bowl': '🥣',
+            'banana': '🍌',
+            'apple': '🍎',
+            'sandwich': '🥪',
+            'orange': '🍊',
+            'broccoli': '🥦',
+            'carrot': '🥕',
+            'hot dog': '🌭',
+            'pizza': '🍕',
+            'donut': '🍩',
+            'cake': '🍰',
+            'chair': '🪑',
+            'couch': '🛋️',
+            'potted plant': '🪴',
+            'bed': '🛏️',
+            'dining table': '🍽️',
+            'toilet': '🚽',
+            'tv': '📺',
+            'laptop': '💻',
+            'mouse': '🖱️',
+            'remote': '📱',
+            'keyboard': '⌨️',
+            'cell phone': '📱',
+            'microwave': '📟',
+            'oven': '🔥',
+            'toaster': '🍞',
+            'sink': '🚰',
+            'refrigerator': '🧊',
+            'book': '📚',
+            'clock': '🕐',
+            'vase': '🏺',
+            'scissors': '✂️',
+            'teddy bear': '🧸',
+            'hair drier': '💨',
+            'toothbrush': '🪥'
+        };
+        return emojiMap[className] || '📦';
     }
 })();
 </script>
