@@ -77,6 +77,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0"></script>
 
 <script>
 (async () => {
@@ -86,7 +87,8 @@
     const status = document.getElementById("status");
     const detectionsDiv = document.getElementById("detections");
     
-    let model = null;
+    let cocoModel = null;
+    let mobileNetModel = null;
 
     // Start webcam with back camera
     try {
@@ -109,45 +111,55 @@
         return;
     }
 
-    // Load COCO-SSD model with base mobilenet_v2
+    // Load both models for better detection
     try {
-        status.textContent = "🤖 Loading AI model (this may take 10-20 seconds)...";
-        model = await cocoSsd.load({
-            base: 'mobilenet_v2' // More accurate than default
+        status.textContent = "🤖 Loading AI models (20-30 seconds)...";
+        
+        // Load COCO-SSD for object detection
+        cocoModel = await cocoSsd.load({
+            base: 'mobilenet_v2'
         });
-        status.textContent = "✅ AI Ready! Point at objects (80+ types supported)";
+        
+        // Load MobileNet for image classification (detects 1000+ objects)
+        mobileNetModel = await mobilenet.load({
+            version: 2,
+            alpha: 1.0
+        });
+        
+        status.textContent = "✅ AI Ready! Detecting 1000+ object types";
         status.style.color = "#0f0";
         detectObjects();
     } catch (e) {
-        status.textContent = "❌ Error loading model: " + e.message;
+        status.textContent = "❌ Error loading models: " + e.message;
         return;
     }
 
-    const colors = ['#0ff', '#f0f', '#ff0', '#0f0', '#f00', '#00f'];
-    let colorIndex = 0;
+    const colors = ['#0ff', '#f0f', '#ff0', '#0f0', '#f00', '#00f', '#ffa500', '#ff69b4'];
 
     async function detectObjects() {
-        if (!model) return;
+        if (!cocoModel || !mobileNetModel) return;
 
-        // Run detection with lower score threshold to detect more objects
-        const predictions = await model.detect(video, undefined, 0.3); // 30% confidence threshold
+        // Get COCO detections (bounding boxes)
+        const cocoDetections = await cocoModel.detect(video, undefined, 0.25);
+        
+        // Get MobileNet classifications (what the whole scene contains)
+        const classifications = await mobileNetModel.classify(video, 5);
         
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Draw bounding boxes and labels
+        // Draw bounding boxes
         ctx.font = "bold 16px Arial";
         ctx.lineWidth = 3;
         
         let detectionsHTML = "";
+        let totalDetections = 0;
         
-        if (predictions.length === 0) {
-            detectionsHTML = '<div class="detection-item" style="color:#888;">No objects detected - try moving camera closer</div>';
-        } else {
-            // Sort by confidence
-            predictions.sort((a, b) => b.score - a.score);
+        // Draw COCO detections with boxes
+        if (cocoDetections.length > 0) {
+            cocoDetections.sort((a, b) => b.score - a.score);
             
-            predictions.forEach((prediction, index) => {
+            cocoDetections.forEach((prediction, index) => {
                 const [x, y, width, height] = prediction.bbox;
                 const confidence = (prediction.score * 100).toFixed(0);
                 const color = colors[index % colors.length];
@@ -157,7 +169,7 @@
                 ctx.fillStyle = color;
                 ctx.strokeRect(x, y, width, height);
                 
-                // Draw label background
+                // Draw label
                 const label = `${prediction.class.toUpperCase()}`;
                 const confLabel = `${confidence}%`;
                 const textWidth = ctx.measureText(label).width;
@@ -166,14 +178,12 @@
                 ctx.fillStyle = color;
                 ctx.fillRect(x, y - 30, Math.max(textWidth, confWidth) + 15, 30);
                 
-                // Draw label text
                 ctx.fillStyle = "#000";
                 ctx.fillText(label, x + 5, y - 12);
                 ctx.font = "12px Arial";
                 ctx.fillText(confLabel, x + 5, y - 2);
                 ctx.font = "bold 16px Arial";
                 
-                // Add to list
                 const emoji = getEmoji(prediction.class);
                 detectionsHTML += `
                     <div class="detection-item" style="border-left: 4px solid ${color};">
@@ -181,9 +191,34 @@
                         <span class="confidence">${confidence}%</span>
                     </div>
                 `;
+                totalDetections++;
             });
+        }
+        
+        // Add MobileNet classifications (can detect cubes, shapes, etc.)
+        if (classifications.length > 0) {
+            detectionsHTML += '<div style="margin-top:15px; padding:10px; background:#1a1a1a; border-radius:5px;"><strong>🔍 Also detected in scene:</strong></div>';
             
-            status.textContent = `✅ Detected ${predictions.length} object${predictions.length > 1 ? 's' : ''}`;
+            classifications.forEach((classification, index) => {
+                const confidence = (classification.probability * 100).toFixed(0);
+                if (confidence > 15) { // Show if >15% confidence
+                    const color = colors[(cocoDetections.length + index) % colors.length];
+                    detectionsHTML += `
+                        <div class="detection-item" style="border-left: 4px solid ${color}; opacity:0.8;">
+                            🎯 <span class="object-name">${classification.className}</span> 
+                            <span class="confidence">${confidence}%</span>
+                        </div>
+                    `;
+                    totalDetections++;
+                }
+            });
+        }
+        
+        if (totalDetections === 0) {
+            detectionsHTML = '<div class="detection-item" style="color:#888;">No objects detected - try different angle or better lighting</div>';
+            status.textContent = "❌ No objects detected";
+        } else {
+            status.textContent = `✅ Detected ${totalDetections} object${totalDetections > 1 ? 's' : ''}`;
         }
         
         detectionsDiv.innerHTML = detectionsHTML;
@@ -194,86 +229,21 @@
 
     function getEmoji(className) {
         const emojiMap = {
-            'person': '👤',
-            'bicycle': '🚲',
-            'car': '🚗',
-            'motorcycle': '🏍️',
-            'airplane': '✈️',
-            'bus': '🚌',
-            'train': '🚆',
-            'truck': '🚚',
-            'boat': '⛵',
-            'traffic light': '🚦',
-            'fire hydrant': '🚒',
-            'stop sign': '🛑',
-            'parking meter': '🅿️',
-            'bench': '🪑',
-            'bird': '🐦',
-            'cat': '🐱',
-            'dog': '🐕',
-            'horse': '🐴',
-            'sheep': '🐑',
-            'cow': '🐄',
-            'elephant': '🐘',
-            'bear': '🐻',
-            'zebra': '🦓',
-            'giraffe': '🦒',
-            'backpack': '🎒',
-            'umbrella': '☂️',
-            'handbag': '👜',
-            'tie': '👔',
-            'suitcase': '🧳',
-            'frisbee': '🥏',
-            'skis': '🎿',
-            'snowboard': '🏂',
-            'sports ball': '⚽',
-            'kite': '🪁',
-            'baseball bat': '⚾',
-            'baseball glove': '🥎',
-            'skateboard': '🛹',
-            'surfboard': '🏄',
-            'tennis racket': '🎾',
-            'bottle': '🍾',
-            'wine glass': '🍷',
-            'cup': '☕',
-            'fork': '🍴',
-            'knife': '🔪',
-            'spoon': '🥄',
-            'bowl': '🥣',
-            'banana': '🍌',
-            'apple': '🍎',
-            'sandwich': '🥪',
-            'orange': '🍊',
-            'broccoli': '🥦',
-            'carrot': '🥕',
-            'hot dog': '🌭',
-            'pizza': '🍕',
-            'donut': '🍩',
-            'cake': '🍰',
-            'chair': '🪑',
-            'couch': '🛋️',
-            'potted plant': '🪴',
-            'bed': '🛏️',
-            'dining table': '🍽️',
-            'toilet': '🚽',
-            'tv': '📺',
-            'laptop': '💻',
-            'mouse': '🖱️',
-            'remote': '📱',
-            'keyboard': '⌨️',
-            'cell phone': '📱',
-            'microwave': '📟',
-            'oven': '🔥',
-            'toaster': '🍞',
-            'sink': '🚰',
-            'refrigerator': '🧊',
-            'book': '📚',
-            'clock': '🕐',
-            'vase': '🏺',
-            'scissors': '✂️',
-            'teddy bear': '🧸',
-            'hair drier': '💨',
-            'toothbrush': '🪥'
+            'person': '👤', 'bicycle': '🚲', 'car': '🚗', 'motorcycle': '🏍️',
+            'airplane': '✈️', 'bus': '🚌', 'train': '🚆', 'truck': '🚚',
+            'boat': '⛵', 'traffic light': '🚦', 'stop sign': '🛑',
+            'bench': '🪑', 'bird': '🐦', 'cat': '🐱', 'dog': '🐕',
+            'horse': '🐴', 'sheep': '🐑', 'cow': '🐄', 'elephant': '🐘',
+            'bear': '🐻', 'zebra': '🦓', 'giraffe': '🦒', 'backpack': '🎒',
+            'umbrella': '☂️', 'handbag': '👜', 'tie': '👔', 'suitcase': '🧳',
+            'sports ball': '⚽', 'bottle': '🍾', 'cup': '☕', 'fork': '🍴',
+            'knife': '🔪', 'spoon': '🥄', 'bowl': '🥣', 'banana': '🍌',
+            'apple': '🍎', 'sandwich': '🥪', 'orange': '🍊', 'pizza': '🍕',
+            'donut': '🍩', 'cake': '🍰', 'chair': '🪑', 'couch': '🛋️',
+            'bed': '🛏️', 'toilet': '🚽', 'tv': '📺', 'laptop': '💻',
+            'mouse': '🖱️', 'keyboard': '⌨️', 'cell phone': '📱',
+            'book': '📚', 'clock': '🕐', 'vase': '🏺', 'scissors': '✂️',
+            'teddy bear': '🧸'
         };
         return emojiMap[className] || '📦';
     }
