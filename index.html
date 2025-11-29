@@ -4,12 +4,83 @@
 <meta charset="utf-8">
 <title>Water Level Detector</title>
 <style>
-  body { background:#111; color:#eee; font-family:Arial; text-align:center; }
-  video { width:80%; max-width:500px; margin-top:20px; border:3px solid #0ff; }
-  #status { margin-top:20px; font-size:20px; }
-  .container { position:relative; display:inline-block; margin-top:20px; }
+  body { 
+    background:#111; 
+    color:#eee; 
+    font-family:Arial; 
+    text-align:center; 
+    margin:0;
+    padding:20px;
+  }
+  video { 
+    width:80%; 
+    max-width:500px; 
+    margin-top:20px; 
+    border:3px solid #0ff; 
+    border-radius:10px;
+  }
+  #status { 
+    margin-top:20px; 
+    font-size:20px; 
+  }
+  .container { 
+    position:relative; 
+    display:inline-block; 
+    margin-top:20px; 
+  }
   .water-gauge { 
     width:80px; 
+    height:300px; 
+    background:#222; 
+    border:3px solid #0ff; 
+    border-radius:10px;
+    position:relative;
+    overflow:hidden;
+  }
+  .water-fill {
+    position:absolute;
+    bottom:0;
+    width:100%;
+    background:linear-gradient(to top, #00ffff, #0088ff);
+    transition:height 0.3s ease;
+    border-radius:0 0 7px 7px;
+  }
+  .gauge-markers {
+    position:absolute;
+    width:100%;
+    height:100%;
+    top:0;
+    left:0;
+  }
+  .marker {
+    position:absolute;
+    width:100%;
+    height:1px;
+    background:#666;
+    left:0;
+  }
+  .marker-label {
+    position:absolute;
+    right:90px;
+    font-size:12px;
+    color:#888;
+  }
+  #calibrate-btn {
+    padding:10px 20px;
+    font-size:16px;
+    background:#0088ff;
+    color:white;
+    border:none;
+    border-radius:5px;
+    cursor:pointer;
+    margin-top:20px;
+  }
+  #calibrate-btn:hover { 
+    background:#0066cc; 
+  }
+</style>
+</head>
+<body>
 <h2>Water Level Detector</h2>
 
 <div id="status">Starting camera...</div>
@@ -49,35 +120,9 @@
       <option value="95">95%</option>
     </select>
   </label>
-</div>sition:absolute;
-    width:100%;
-    height:100%;
-    top:0;
-    left:0;
-  }
-  .marker {
-    position:absolute;
-    width:100%;
-    height:1px;
-    background:#666;
-    left:0;
-  }
-  .marker-label {
-    position:absolute;
-    right:90px;
-    font-size:12px;
-    color:#888;
-  }
-  #calibrate-btn {
-    padding:10px 20px;
-    font-size:16px;
-    background:#0088ff;
-    color:white;
-    border:none;
-    border-radius:5px;
-    cursor:pointer;
-    margin-top:20px;
-  }
+</div>
+
+<script>
 (async () => {
     const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
@@ -87,6 +132,12 @@
     const waterFill = document.getElementById("water-fill");
     const thresholdSelect = document.getElementById("threshold");
     const calibrateBtn = document.getElementById("calibrate-btn");
+    
+    let hasAlarmed = false;
+    let emptyBrightness = null;
+    let fullBrightness = 60;
+    let samples = [];
+
     // Start webcam with back camera
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -118,7 +169,6 @@
         canvas.height = h;
         ctx.drawImage(video, 0, 0, w, h);
         
-        // Sample larger area for better calibration
         const sampleHeight = Math.floor(h * 0.3);
         const img = ctx.getImageData(0, 0, w, sampleHeight);
         let total = 0;
@@ -131,33 +181,44 @@
         }
         
         emptyBrightness = total / (img.data.length / 4);
-        fullBrightness = emptyBrightness * 0.4; // Assume full water is ~40% of empty brightness
+        fullBrightness = emptyBrightness * 0.4;
         
         status.textContent = "✓ Calibrated! Monitoring water level...";
         calibrateBtn.style.display = "none";
-    });bel style="font-size:18px;">Alert at: 
-    <select id="threshold" style="font-size:18px; padding:5px;">
-      <option value="80">80%</option>
-      <option value="90" selected>90%</option>
-      <option value="95">95%</option>
-    </select>
-  </label>
-</div>
+    });
 
-<script>
-(async () => {
-    const video = document.getElementById("video");
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    const status = document.getElementById("status");
-    const levelDisplay = document.getElementById("level");
+    function playAlarm() {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        oscillator.type = "square";
+        oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        
+        let toggle = true;
+        const interval = setInterval(() => {
+            oscillator.frequency.setValueAtTime(toggle ? 800 : 1000, audioCtx.currentTime);
+            toggle = !toggle;
+        }, 300);
+        
+        setTimeout(() => {
+            clearInterval(interval);
+            oscillator.stop();
+            audioCtx.close();
+        }, 5000);
+    }
+
     function check() {
         const w = video.videoWidth;
         const h = video.videoHeight;
 
         if (!w || !h) return requestAnimationFrame(check);
 
-        // Only monitor if calibrated
         if (emptyBrightness === null) {
             requestAnimationFrame(check);
             return;
@@ -167,7 +228,6 @@
         canvas.height = h;
         ctx.drawImage(video, 0, 0, w, h);
 
-        // Sample from top portion to detect water level
         const sampleHeight = Math.floor(h * 0.3);
         const img = ctx.getImageData(0, 0, w, sampleHeight);
         let total = 0;
@@ -181,20 +241,16 @@
 
         const currentBrightness = total / (img.data.length / 4);
         
-        // Add to samples array for smoothing
         samples.push(currentBrightness);
-        if (samples.length > 10) samples.shift(); // Keep last 10 samples
+        if (samples.length > 10) samples.shift();
         
-        // Calculate average of samples for smoother reading
         const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
         
-        // Convert brightness to water level percentage using calibrated values
         let waterLevel = ((emptyBrightness - avg) / (emptyBrightness - fullBrightness)) * 100;
-        waterLevel = Math.max(0, Math.min(100, waterLevel)); // Clamp between 0-100
+        waterLevel = Math.max(0, Math.min(100, waterLevel));
         
         const threshold = parseInt(thresholdSelect.value);
         
-        // Update display
         levelDisplay.textContent = Math.round(waterLevel) + "%";
         waterFill.style.height = waterLevel + "%";
         
@@ -224,51 +280,7 @@
             levelDisplay.style.color = "#0ff";
             waterFill.style.background = "linear-gradient(to top, #00ffff, #0088ff)";
             document.body.style.backgroundColor = "#111";
-            hasAlarmed = false; // Reset alarm flag when level drops
-        }
-
-        requestAnimationFrame(check);
-    }       total += (0.3*r + 0.59*g + 0.11*b);
-        }
-
-        const avg = total / (img.data.length / 4);
-        
-        // Convert brightness to water level percentage (inverted: lower brightness = more water)
-        // Calibrate: avg ~150 = 0%, avg ~60 = 100%
-        const maxBrightness = 150;
-        const minBrightness = 60;
-        let waterLevel = ((maxBrightness - avg) / (maxBrightness - minBrightness)) * 100;
-        waterLevel = Math.max(0, Math.min(100, waterLevel)); // Clamp between 0-100
-        
-        const threshold = parseInt(thresholdSelect.value);
-        
-        // Update display
-        levelDisplay.textContent = Math.round(waterLevel) + "%";
-        
-        if (waterLevel >= threshold) {
-            status.textContent = "⚠️ WATER LEVEL ALERT!";
-            status.style.color = "#ff0000";
-            status.style.fontSize = "30px";
-            levelDisplay.style.color = "#ff0000";
-            document.body.style.backgroundColor = "#ff0000";
-            
-            if (!hasAlarmed) {
-                playAlarm();
-                hasAlarmed = true;
-            }
-        } else if (waterLevel >= threshold - 10) {
-            status.textContent = "⚠️ Getting close...";
-            status.style.color = "#ffaa00";
-            status.style.fontSize = "24px";
-            levelDisplay.style.color = "#ffaa00";
-            document.body.style.backgroundColor = "#111";
-        } else {
-            status.textContent = "Monitoring water level";
-            status.style.color = "#0f0";
-            status.style.fontSize = "20px";
-            levelDisplay.style.color = "#0ff";
-            document.body.style.backgroundColor = "#111";
-            hasAlarmed = false; // Reset alarm flag when level drops
+            hasAlarmed = false;
         }
 
         requestAnimationFrame(check);
